@@ -16,7 +16,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from moamong_app.llm_client import AvailableModels, fetch_available_models
+from moamong_app.llm_client import (
+    AvailableModels,
+    ModelTestResult,
+    fetch_available_models,
+    test_llm_models,
+)
 from moamong_app.models import LlmSettings
 
 
@@ -26,10 +31,12 @@ class SettingsDialog(QDialog):
         settings: LlmSettings,
         parent: QWidget | None = None,
         model_loader: Callable[[LlmSettings], AvailableModels] = fetch_available_models,
+        model_tester: Callable[[LlmSettings], ModelTestResult] = test_llm_models,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.model_loader = model_loader
+        self.model_tester = model_tester
 
         self.base_url_edit = QLineEdit(settings.base_url)
         self.api_key_edit = QLineEdit(settings.api_key)
@@ -104,6 +111,7 @@ class SettingsDialog(QDialog):
         )
 
     def load_models(self) -> None:
+        self.load_models_button.setText("Testing Models...")
         try:
             models = self.model_loader(self.to_settings())
         except Exception as exc:
@@ -112,7 +120,18 @@ class SettingsDialog(QDialog):
 
         self._set_combo_items(self.model_combo, models.llm_models)
         self._set_combo_items(self.embedding_model_combo, models.embedding_models)
-        self.load_models_button.setText(f"Loaded {len(models.all_models)} Models")
+
+        try:
+            test_result = self.model_tester(self.to_settings())
+        except Exception as exc:
+            QMessageBox.warning(self, "Model Test", str(exc))
+            return
+
+        self.load_models_button.setText(
+            f"Loaded {len(models.all_models)} Models / "
+            f"{'Chat OK' if test_result.chat_ok else 'Chat Failed'} / "
+            f"{'Embedding OK' if test_result.embedding_ok else 'Embedding Failed'}"
+        )
 
     def _model_combo(self, value: str) -> QComboBox:
         combo = QComboBox()
