@@ -5,20 +5,27 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QThread, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QSortFilterProxyModel,
+    QThread,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QSpinBox,
-    QTableView,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -47,6 +54,7 @@ from moamong_app.settings import load_settings, save_settings
 from moamong_app.sqlite_store import SqliteStore
 from moamong_app.ui.processing_detail_dialog import ProcessingDetailDialog
 from moamong_app.ui.settings_dialog import SettingsDialog
+from moamong_app.ui.spreadsheet_view import SpreadsheetView
 
 
 SITE_COLUMN_TO_ID = {site_keyword_column(site): site for site in SITE_ORDER}
@@ -396,16 +404,29 @@ class MainWindow(QMainWindow):
         ] = (0, 0, None, None)
 
         self.table_model = ProductTableModel(self)
-        self.table = QTableView()
-        self.table.setModel(self.table_model)
-        self.table.setAlternatingRowColors(True)
-        self.table.setWordWrap(False)
-        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Interactive
+        self.proxy_model = QSortFilterProxyModel(self)
+        self.proxy_model.setSourceModel(self.table_model)
+        self.proxy_model.setFilterKeyColumn(-1)
+        self.proxy_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.proxy_model.setSortCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.proxy_model.setDynamicSortFilter(True)
+
+        self.table = SpreadsheetView()
+        self.table.setModel(self.proxy_model)
+        self.table.freeze_columns(1)
+
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText(
+            "Filter rows (case-insensitive substring; matches any column)"
         )
-        self.table.horizontalHeader().setDefaultSectionSize(140)
-        self.table.verticalHeader().setDefaultSectionSize(24)
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.textChanged.connect(self.proxy_model.setFilterFixedString)
+
+        filter_row = QWidget()
+        filter_layout = QHBoxLayout(filter_row)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.addWidget(QLabel("Filter:"))
+        filter_layout.addWidget(self.filter_edit, stretch=1)
 
         self.status_label = QLabel("Load product and category Excel files.")
         self.progress_bar = QProgressBar()
@@ -414,6 +435,7 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         layout = QVBoxLayout(central)
+        layout.addWidget(filter_row)
         layout.addWidget(self.table)
         layout.addWidget(self.progress_bar)
         layout.addWidget(self.status_label)
